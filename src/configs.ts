@@ -1,0 +1,302 @@
+/**
+ * These functions make gatsby file assets from the folders in sites.
+ */
+import del from 'del';
+import jsYaml from 'js-yaml';
+import _ from 'lodash';
+import makeDir from 'make-dir';
+import fs from 'mz/fs';
+import path from 'path';
+import readdir from 'recursive-readdir';
+
+interface Config {
+  extends?: string[];
+  [key: string]: any;
+}
+
+/**
+ * From configuration files in sites, generate gatsby config and source
+ * for a website, saving them in `made/`
+ *
+ * @param site Name of site folder in sites/
+ */
+export async function makeSite(site: string) {
+  let config = await loadExtendConfig(site);
+  // makeMadeFolder
+  await makeBuild(site, config);
+  return config;
+}
+
+/**
+ * Load config yaml file, extending it with values from mixins specified in `.extends`
+ *
+ * @param site
+ */
+async function loadExtendConfig(site: string): Promise<Config> {
+  let parents = await mixinChain(site);
+  let configs = await Promise.all(parents.map(s => loadConfig(s)));
+  let config = {};
+  for (let cfg of configs) {
+    config = _.assign(config, cfg);
+  }
+  return config;
+}
+
+/**
+ * Load a config yaml file
+ *
+ * @param site
+ */
+async function loadConfig(site: string) {
+  let configPath = await sitePath(site);
+  let content = await fs.readFile(configPath, "utf8");
+  let config = jsYaml.safeLoad(content) as Config;
+
+  return nullsToBlanks(config);
+}
+
+function nullsToBlanks(obj: Config): Config {
+  return _.mapValues(obj, v => {
+    if (_.isPlainObject(v)) {
+      return nullsToBlanks(v);
+    } else if (_.isArray(v)) {
+      return v;
+    } else {
+      return _.isEmpty(v) ? "" : v;
+    }
+  });
+}
+
+/**
+ * Find the yaml config file for a site:
+ *  either sites/{site}/{site}.yaml or sites/{site}.yaml
+ *
+ * @param site
+ */
+async function sitePath(site: string) {
+  let sd = siteDir(site);
+  let d = path.join(sd, `${site}.yaml`);
+  let f = sd + ".yaml";
+
+  if (await fs.exists(d)) return d;
+  if (await fs.exists(f)) return f;
+
+  throw Error(`Site config not found: ${site}`);
+}
+
+/**
+ * Project root
+ */
+function root() {
+  return process.cwd();
+}
+
+/**
+ * Directory where a site's yaml config and custom source
+ * files are stored.
+ *
+ * @param site
+ */
+function siteDir(site: string) {
+  return path.join(root(), "sites", site);
+}
+
+/**
+ * Path of the made directory for a site: `made/{site}/`
+ *
+ * @param site
+ */
+function siteMadeDir(site: string) {
+  return path.join(root(), "made", site);
+}
+
+/**
+ * Make all gatsby artifacts for a site, writing them to `made/{site}/`
+ *
+ * @param site
+ * @param config
+ */
+async function makeBuild(site: string, config: Config) {
+  let sm = siteMadeDir(site);
+
+  await makeDir(sm);
+  await Promise.all(
+    ["pages", "components", "layouts", "data", "utils"].map(p =>
+      makeDir(path.join(sm, "src", p))
+    )
+  );
+  await writeGatsbyConfig(config, path.join(sm, "gatsby-config.js"));
+  await copySrcFiles(site, path.join(sm, "src"));
+  await writeSiteData(config, path.join(sm, "src", "data", "site.json"));
+}
+
+export async function cleanSite(site: string) {
+  let sm = siteMadeDir(site);
+  await del([`${sm}/**`, `!${sm}`]);
+}
+
+interface MergedSourceFiles {
+  [key: string]: string;
+}
+
+/**
+ * Copy source files for the site and for any parent that this site .extends from
+ *
+ * @param site
+ * @param dest
+ */
+async function copySrcFiles(site: string, dest: string) {
+  // console.debug("copySrcFiles", site);
+
+  let sourceFiles: MergedSourceFiles = {};
+  let parents = await mixinChain(site);
+  for (let p of parents) {
+    let parentSrc = siteDir(p);
+    let files = await readdir(parentSrc);
+    for (let f of files) {
+      sourceFiles[path.relative(parentSrc, f)] = f;
+    }
+  }
+
+  for (let relative in sourceFiles) {
+    let full = sourceFiles[relative];
+    fs.copyFileSync(full, path.join(dest, relative));
+  }
+}
+
+async function writeGatsbyConfig(config: Config, filename: string) {
+  let json = JSON.stringify(gatsbyConfig(config), undefined, 2);
+  let body = `module.exports = ${json};\n`;
+  return fs.writeFile(filename, body);
+}
+
+/**
+ * Generate gatsby-config from matterminds config
+ *
+ * @param config
+ */
+function gatsbyConfig(config: Config) {
+  return {
+    siteMetadata: {
+      title: config.title || config.name,
+      siteUrl: config.domain
+    },
+    plugins: [
+      "gatsby-plugin-react-helmet",
+      `gatsby-transformer-json`,
+      "gatsby-plugin-sass",
+      {
+        resolve: `gatsby-plugin-typography`,
+        options: {
+          pathToConfigModule: `src/utils/typography.js`
+        }
+      },
+      {
+        resolve: `gatsby-source-filesystem`,
+        options: {
+          path: `./src/data/`
+        }
+      },
+      "gatsby-plugin-antd"
+      // {
+      //   resolve: `gatsby-source-filesystem`,
+      //   options: {
+      //     name: `docs`,
+      //     path: `${__dirname}/../docs/`,
+      //   },
+      // },
+    ]
+    // pathPrefix: `/blog`,
+  };
+}
+
+/**
+ * Save all site data as site.json to be loaded by Gatsby
+ *
+ * @param config
+ * @param filename
+ */
+async function writeSiteData(config: Config, filename: string) {
+  let json = JSON.stringify(config, undefined, 2);
+  return fs.writeFile(filename, json);
+}
+
+/**
+ * Having 'made' a site, activate it for gatsby develop / build
+ * by linking gatsby-config and src folders into the project root.
+ *
+ * @param site
+ */
+export async function activateSite(site: string) {
+  let sm = siteMadeDir(site);
+
+  if (!(await fs.exists(sm))) {
+    throw Error(`Site is not yet made: ${site} dir: ${sm}`);
+  }
+  let r = root();
+
+  async function link(filename: string, type: string) {
+    let target = path.join(sm, filename);
+    let p = path.join(r, filename);
+
+    // TODO: check if exists and does not point to target
+    // only then unlink
+    try {
+      await fs.unlink(p);
+    } catch (e) {
+      console.warn(e);
+    }
+    await fs.symlink(target, p, type);
+  }
+
+  await link("gatsby-config.js", "file");
+  await link("src", "dir");
+}
+
+/**
+ * Returns the list of mixin sites for this site.
+ *
+ * Includes this site as last item
+ */
+async function mixinChain(site: string): Promise<string[]> {
+  let config = await loadConfig(site);
+  if (config.extends) {
+    let parents = await Promise.all(config.extends.map(e => mixinChain(e)));
+    let flat = _.flattenDeep(parents);
+    flat.push(site);
+    return flat;
+  }
+  return [site];
+}
+
+/**
+ * Create a site folder and config yaml file by name if it doesn't already exist.
+ *
+ * This is used by create.ts command line tool
+ *
+ * Saves to sites/
+ *
+ * @param site
+ * @param config
+ */
+export async function createSite(
+  site: string,
+  config: Config
+): Promise<string> {
+  let sd = siteDir(site);
+  await makeDir(sd);
+  let filename = path.join(sd, `${site}.yaml`);
+  let exists = await fs.exists(filename);
+  if (!exists) {
+    let body = jsYaml.safeDump(config);
+    await fs.writeFile(filename, body);
+  }
+  return filename;
+}
+
+// checkProject
+// that there is sites, package.json, src
+
+// buildSite
+
+// serveSite
