@@ -2,6 +2,7 @@
  * These functions make gatsby file assets from the folders in sites.
  */
 import del from 'del';
+import execa from 'execa';
 import jsYaml from 'js-yaml';
 import _ from 'lodash';
 import makeDir from 'make-dir';
@@ -13,6 +14,9 @@ interface Config {
   extends?: string[];
   [key: string]: any;
 }
+
+// relative to cwd
+const GATSBY_BIN = "node_modules/gatsby/dist/bin/gatsby.js";
 
 /** API */
 
@@ -52,6 +56,14 @@ export async function makeSite(site: string) {
   // makeMadeFolder
   await makeBuild(site, config);
   return config;
+}
+
+/**
+ * Make all sites
+ */
+export async function makeAll() {
+  let sites = await listSites();
+  return Promise.all(sites.map(makeSite));
 }
 
 /**
@@ -96,10 +108,42 @@ export async function activateSite(site: string) {
   await link("src", "dir");
 }
 
-// listSites
-// makeAll
-// buildSite
-// buildAll
+/**
+ * Names of all sites in `./sites`
+ */
+export async function listSites(): Promise<string[]> {
+  let sites = await fs.readdir(path.join(root(), "sites"));
+  return sites.filter((s: string) => !s.startsWith("."));
+}
+
+/**
+ * Build one site
+ *
+ * Returns the execa Promise:
+ *  result.stdout
+ *  error
+ *    message
+ *    stdout
+ *    stderr
+ *
+ * @param site
+ * @param echo Echo stdout/stderr
+ */
+export async function buildSite(site: string, echo = true) {
+  await makeSite(site);
+  await activateSite(site);
+  return callGatsby(["build"], echo);
+}
+
+/**
+ * Build all, but not very informative on errors or progress.
+ */
+export async function buildAll() {
+  let sites = await listSites();
+  for (let site of sites) {
+    await buildSite(site, false).catch(console.error);
+  }
+}
 
 /** INTERNAL */
 /**
@@ -217,8 +261,6 @@ interface MergedSourceFiles {
  * @param dest
  */
 async function copySrcFiles(site: string, dest: string) {
-  // console.debug("copySrcFiles", site);
-
   let sourceFiles: MergedSourceFiles = {};
   let parents = await mixinChain(site);
   for (let p of parents) {
@@ -268,6 +310,12 @@ function gatsbyConfig(config: Config) {
           path: `./src/data/`
         }
       },
+      {
+        resolve: `gatsby-plugin-sass`,
+        options: {
+          includePaths: [require("path").resolve(__dirname, "node_modules")]
+        }
+      },
       "gatsby-plugin-antd"
       // {
       //   resolve: `gatsby-source-filesystem`,
@@ -306,6 +354,21 @@ async function mixinChain(site: string): Promise<string[]> {
     return flat;
   }
   return [site];
+}
+
+/**
+ * Call gatsby, returning Promise for the command result
+ *
+ * @param command - Array of args to gatsby
+ * @param echo    - Echo stdout/stderr
+ */
+async function callGatsby(command: string[], echo = true) {
+  let job = execa(GATSBY_BIN, command);
+  if (echo) {
+    job.stdout.pipe(process.stdout);
+    job.stderr.pipe(process.stderr);
+  }
+  return job;
 }
 
 // checkProject
