@@ -14,6 +14,33 @@ interface Config {
   [key: string]: any;
 }
 
+/** API */
+
+/**
+ * Create a site folder and config yaml file by name if it doesn't already exist.
+ *
+ * This is used by create.ts command line tool
+ *
+ * Saves to sites/
+ *
+ * @param site
+ * @param config
+ */
+export async function createSite(
+  site: string,
+  config: Config
+): Promise<string> {
+  let sd = siteDir(site);
+  await makeDir(sd);
+  let filename = path.join(sd, `${site}.yaml`);
+  let exists = await fs.exists(filename);
+  if (!exists) {
+    let body = jsYaml.safeDump(config);
+    await fs.writeFile(filename, body);
+  }
+  return filename;
+}
+
 /**
  * From configuration files in sites, generate gatsby config and source
  * for a website, saving them in `made/`
@@ -27,6 +54,54 @@ export async function makeSite(site: string) {
   return config;
 }
 
+/**
+ * Delete all files in `made/${site}`
+ *
+ * @param site
+ */
+export async function cleanSite(site: string) {
+  let sm = siteMadeDir(site);
+  await del([`${sm}/**`, `!${sm}`]);
+}
+
+/**
+ * Having 'made' a site, activate it for gatsby develop / build
+ * by linking gatsby-config and src folders into the project root.
+ *
+ * @param site
+ */
+export async function activateSite(site: string) {
+  let sm = siteMadeDir(site);
+
+  if (!(await fs.exists(sm))) {
+    throw Error(`Site is not yet made: ${site} dir: ${sm}`);
+  }
+  let r = root();
+
+  async function link(filename: string, type: string) {
+    let target = path.join(sm, filename);
+    let p = path.join(r, filename);
+
+    // TODO: check if exists and does not point to target
+    // only then unlink
+    try {
+      await fs.unlink(p);
+    } catch (e) {
+      console.warn(e);
+    }
+    await fs.symlink(target, p, type);
+  }
+
+  await link("gatsby-config.js", "file");
+  await link("src", "dir");
+}
+
+// listSites
+// makeAll
+// buildSite
+// buildAll
+
+/** INTERNAL */
 /**
  * Load config yaml file, extending it with values from mixins specified in `.extends`
  *
@@ -130,17 +205,13 @@ async function makeBuild(site: string, config: Config) {
   await writeSiteData(config, path.join(sm, "src", "data", "site.json"));
 }
 
-export async function cleanSite(site: string) {
-  let sm = siteMadeDir(site);
-  await del([`${sm}/**`, `!${sm}`]);
-}
-
 interface MergedSourceFiles {
   [key: string]: string;
 }
 
 /**
- * Copy source files for the site and for any parent that this site .extends from
+ * Copy source files for the site and for any parent that this
+ * site .extends from
  *
  * @param site
  * @param dest
@@ -171,7 +242,7 @@ async function writeGatsbyConfig(config: Config, filename: string) {
 }
 
 /**
- * Generate gatsby-config from matterminds config
+ * Generate gatsby-config from yaml config
  *
  * @param config
  */
@@ -222,38 +293,6 @@ async function writeSiteData(config: Config, filename: string) {
 }
 
 /**
- * Having 'made' a site, activate it for gatsby develop / build
- * by linking gatsby-config and src folders into the project root.
- *
- * @param site
- */
-export async function activateSite(site: string) {
-  let sm = siteMadeDir(site);
-
-  if (!(await fs.exists(sm))) {
-    throw Error(`Site is not yet made: ${site} dir: ${sm}`);
-  }
-  let r = root();
-
-  async function link(filename: string, type: string) {
-    let target = path.join(sm, filename);
-    let p = path.join(r, filename);
-
-    // TODO: check if exists and does not point to target
-    // only then unlink
-    try {
-      await fs.unlink(p);
-    } catch (e) {
-      console.warn(e);
-    }
-    await fs.symlink(target, p, type);
-  }
-
-  await link("gatsby-config.js", "file");
-  await link("src", "dir");
-}
-
-/**
  * Returns the list of mixin sites for this site.
  *
  * Includes this site as last item
@@ -267,31 +306,6 @@ async function mixinChain(site: string): Promise<string[]> {
     return flat;
   }
   return [site];
-}
-
-/**
- * Create a site folder and config yaml file by name if it doesn't already exist.
- *
- * This is used by create.ts command line tool
- *
- * Saves to sites/
- *
- * @param site
- * @param config
- */
-export async function createSite(
-  site: string,
-  config: Config
-): Promise<string> {
-  let sd = siteDir(site);
-  await makeDir(sd);
-  let filename = path.join(sd, `${site}.yaml`);
-  let exists = await fs.exists(filename);
-  if (!exists) {
-    let body = jsYaml.safeDump(config);
-    await fs.writeFile(filename, body);
-  }
-  return filename;
 }
 
 // checkProject
