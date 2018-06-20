@@ -279,6 +279,11 @@ async function copySrcFiles(site: string, dest: string) {
 
 async function writeGatsbyConfig(config: Config, filename: string) {
   let json = JSON.stringify(gatsbyConfig(config), undefined, 2);
+  // Replace NODE_MODULES placeholder with runtime javascript expression
+  json = json.replace(
+    '"__NODE_MODULES__"',
+    `[require("path").resolve(__dirname, "node_modules")]`
+  );
   let body = `module.exports = ${json};\n`;
   return fs.writeFile(filename, body);
 }
@@ -313,7 +318,8 @@ function gatsbyConfig(config: Config) {
       {
         resolve: `gatsby-plugin-sass`,
         options: {
-          includePaths: [require("path").resolve(__dirname, "node_modules")]
+          // placeholder
+          includePaths: "__NODE_MODULES__"
         }
       },
       "gatsby-plugin-antd"
