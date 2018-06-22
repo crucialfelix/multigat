@@ -53,7 +53,6 @@ export async function createSite(
  */
 export async function makeSite(site: string) {
   let config = await loadExtendConfig(site);
-  // makeMadeFolder
   await makeBuild(site, config);
   return config;
 }
@@ -73,7 +72,11 @@ export async function makeAll() {
  */
 export async function cleanSite(site: string) {
   let sm = siteMadeDir(site);
-  await del([`${sm}/**`, `!${sm}`]);
+  return emptyDir(sm);
+}
+
+async function emptyDir(dir: string) {
+  return del([`${dir}/**`, `!${dir}`]);
 }
 
 /**
@@ -154,11 +157,7 @@ export async function buildAll() {
 async function loadExtendConfig(site: string): Promise<Config> {
   let parents = await mixinChain(site);
   let configs = await Promise.all(parents.map(s => loadConfig(s)));
-  let config = {};
-  for (let cfg of configs) {
-    config = _.assign(config, cfg);
-  }
-  return config;
+  return _.assign({}, ...configs);
 }
 
 /**
@@ -187,6 +186,17 @@ function nullsToBlanks(obj: Config): Config {
 }
 
 /**
+ * Write yaml file to disk
+ *
+ * @param config
+ * @param filename
+ */
+async function writeConfig(config: Config, filename: string) {
+  let content = jsYaml.safeDump(config);
+  await fs.writeFile(filename, content);
+}
+
+/**
  * Find the yaml config file for a site:
  *  either sites/{site}/{site}.yaml or sites/{site}.yaml
  *
@@ -204,6 +214,15 @@ async function sitePath(site: string) {
 }
 
 /**
+ * Returns paths joined, relative to root
+ *
+ * @param paths
+ */
+function joinPath(paths: string[]): string {
+  return path.join(root(), ...paths);
+}
+
+/**
  * Project root
  */
 function root() {
@@ -216,8 +235,8 @@ function root() {
  *
  * @param site
  */
-function siteDir(site: string) {
-  return path.join(root(), "sites", site);
+export function siteDir(site: string) {
+  return joinPath(["sites", site]);
 }
 
 /**
@@ -226,7 +245,7 @@ function siteDir(site: string) {
  * @param site
  */
 function siteMadeDir(site: string) {
-  return path.join(root(), "made", site);
+  return joinPath(["made", site]);
 }
 
 /**
@@ -347,9 +366,8 @@ async function writeSiteData(config: Config, filename: string) {
 }
 
 /**
- * Returns the list of mixin sites for this site.
+ * Returns the list of mixin sites for this site from `default` down to and including `site`
  *
- * Includes this site as last item
  */
 async function mixinChain(site: string): Promise<string[]> {
   let config = await loadConfig(site);
@@ -357,7 +375,7 @@ async function mixinChain(site: string): Promise<string[]> {
     let parents = await Promise.all(config.extends.map(e => mixinChain(e)));
     let flat = _.flattenDeep(parents);
     flat.push(site);
-    return flat;
+    return _.uniq(flat);
   }
   return [site];
 }
