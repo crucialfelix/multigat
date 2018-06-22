@@ -1,7 +1,7 @@
 import { Command } from '@oclif/command';
 import chokidar from 'chokidar';
 
-import { activateSite, cleanSite, makeSite } from '../configs';
+import { activateSite, callGatsby, cleanSite, makeSite } from '../configs';
 
 export default class Start extends Command {
   static description = "Start a site in development mode";
@@ -27,6 +27,11 @@ export default class Start extends Command {
 
     // run gatsby develop in child process
     // but then you don't get colors
+    try {
+      await callGatsby(["develop", "-p", "8001", "-o"]);
+    } catch (error) {
+      this.error(error);
+    }
   }
 
   async make(site: string) {

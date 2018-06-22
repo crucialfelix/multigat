@@ -388,7 +388,7 @@ async function mixinChain(site: string): Promise<string[]> {
  * @param command - Array of args to gatsby
  * @param echo    - Echo stdout/stderr
  */
-async function callGatsby(command: string[], echo = true) {
+export async function callGatsby(command: string[], echo = true) {
   let job = execa(GATSBY_BIN, command);
   if (echo) {
     job.stdout.pipe(process.stdout);
