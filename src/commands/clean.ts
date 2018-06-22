@@ -14,7 +14,7 @@ export default class Clean extends Command {
 
   async run() {
     const { args } = this.parse(Clean);
-    let filename = await cleanSite(args.site);
-    this.log(`Cleaned: ${filename}`);
+    await cleanSite(args.site);
+    this.log(`Cleaned: ${args.site}`);
   }
 }

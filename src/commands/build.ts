@@ -36,7 +36,7 @@ export default class Build extends Command {
       );
     }
 
-    if (failed) {
+    if (failed.length) {
       for (let f of failed) {
         console.error(
           "---------------------------------------------------------------"
