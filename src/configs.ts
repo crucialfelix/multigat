@@ -321,7 +321,6 @@ function gatsbyConfig(config: Config) {
     plugins: [
       "gatsby-plugin-react-helmet",
       `gatsby-transformer-json`,
-      "gatsby-plugin-sass",
       {
         resolve: `gatsby-plugin-typography`,
         options: {
