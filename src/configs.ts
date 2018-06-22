@@ -135,6 +135,7 @@ export async function listSites(): Promise<string[]> {
 export async function buildSite(site: string, echo = true) {
   await makeSite(site);
   await activateSite(site);
+  await emptyDir(joinPath(["public"]));
   return callGatsby(["build"], echo);
 }
 
@@ -258,6 +259,7 @@ async function makeBuild(site: string, config: Config) {
   let sm = siteMadeDir(site);
 
   await makeDir(sm);
+  await cleanSite(site);
   await Promise.all(
     ["pages", "components", "layouts", "data", "utils"].map(p =>
       makeDir(path.join(sm, "src", p))
@@ -266,6 +268,7 @@ async function makeBuild(site: string, config: Config) {
   await writeGatsbyConfig(config, path.join(sm, "gatsby-config.js"));
   await copySrcFiles(site, path.join(sm, "src"));
   await writeSiteData(config, path.join(sm, "src", "data", "site.json"));
+  await writeConfig(config, path.join(sm, "config.yaml"));
 }
 
 interface MergedSourceFiles {
