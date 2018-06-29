@@ -151,14 +151,24 @@ export async function buildAll() {
 
 /** INTERNAL */
 /**
- * Load config yaml file, extending it with values from mixins specified in `.extends`
+ * Load config yaml file, extending it with values from the configs of mixins specified in `.extends`
+ *
+ * Merges all top level objects. ie. If your config only supplies {contact: {email: 'xyz'}}
+ * then the parent's values for contact will all be included, only email will be set.
  *
  * @param site
  */
 async function loadExtendConfig(site: string): Promise<Config> {
   let parents = await mixinChain(site);
   let configs = await Promise.all(parents.map(s => loadConfig(s)));
-  return _.assign({}, ...configs);
+  let customizer = (objValue: any, srcValue: any) => {
+    if (_.isPlainObject(objValue)) {
+      return _.merge({}, objValue, srcValue);
+    }
+  };
+  configs.push(customizer);
+  // merge each top level key
+  return _.mergeWith({}, ...configs);
 }
 
 /**
