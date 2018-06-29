@@ -16,6 +16,7 @@ export default class Start extends Command {
   async run() {
     const { args } = this.parse(Start);
     let site = args.site;
+    await cleanSite(site);
     await this.make(site);
 
     chokidar
@@ -35,7 +36,6 @@ export default class Start extends Command {
   }
 
   async make(site: string) {
-    await cleanSite(site);
     await makeSite(site);
     await activateSite(site);
     this.log(`Built and activated: ${site}`);
