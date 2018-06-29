@@ -267,18 +267,20 @@ function siteMadeDir(site: string) {
  */
 async function makeBuild(site: string, config: Config) {
   let sm = siteMadeDir(site);
+  let src = path.join(sm, "src");
 
   await makeDir(sm);
   await cleanSite(site);
   await Promise.all(
     ["pages", "components", "layouts", "data", "utils"].map(p =>
-      makeDir(path.join(sm, "src", p))
+      makeDir(path.join(src, p))
     )
   );
   await writeGatsbyConfig(config, path.join(sm, "gatsby-config.js"));
-  await copySrcFiles(site, path.join(sm, "src"));
-  await writeSiteData(config, path.join(sm, "src", "data", "site.json"));
+  await copySrcFiles(site, src);
+  await writeSiteData(config, path.join(src, "data", "site.json"));
   await writeConfig(config, path.join(sm, "config.yaml"));
+  await customizeComponents(config, src);
 }
 
 interface MergedSourceFiles {
@@ -309,9 +311,37 @@ async function copySrcFiles(site: string, dest: string) {
   }
 }
 
+/**
+ * Customize components in layout/index.js by replacing with mappings in config._LAYOUT
+ *
+ * where _LAYOUT transforms can be:
+ *
+ *   Header: CustomHeader.js
+ *   Footer: CustomFooter.js
+ *   Content: CustomContent.js
+ *   Menu: MyMenu.js
+ *
+ */
+async function customizeComponents(config: Config, src: string) {
+  if (config._LAYOUT) {
+    let layoutPath = path.join(src, "layouts", "index.js");
+    let content = await fs.readFile(layoutPath, "utf8");
+    for (let key in config._LAYOUT) {
+      let target = config._LAYOUT[key];
+      let re = new RegExp(`^import ${key} from ['"](.+)['"]`, "m");
+      content = content.replace(
+        re,
+        `import ${key} from "../components/${target}";`
+      );
+    }
+    await fs.writeFile(layoutPath, content);
+  }
+}
+
 async function writeGatsbyConfig(config: Config, filename: string) {
   let json = JSON.stringify(gatsbyConfig(config), undefined, 2);
   // Replace NODE_MODULES placeholder with runtime javascript expression
+  // ? + require("path").resolve(__dirname, "src"),
   json = json.replace(
     '"__NODE_MODULES__"',
     `[require("path").resolve(__dirname, "node_modules")]`
