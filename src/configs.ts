@@ -57,6 +57,12 @@ export async function makeSite(site: string) {
   return config;
 }
 
+export async function updateSite(site: string) {
+  let config = await loadExtendConfig(site);
+  await makeMadeFiles(site, config);
+  return config;
+}
+
 /**
  * Make all sites
  */
@@ -93,6 +99,7 @@ export async function activateSite(site: string) {
   }
   let r = root();
 
+  // maybe just copy them
   async function link(filename: string, type: string) {
     let target = path.join(sm, filename);
     let p = path.join(r, filename);
@@ -260,7 +267,7 @@ function siteMadeDir(site: string) {
 }
 
 /**
- * Make all gatsby artifacts for a site, writing them to `made/{site}/`
+ * Initialize directories and make all gatsby artifacts for a site, writing them to `made/{site}/`
  *
  * @param site
  * @param config
@@ -272,10 +279,24 @@ async function makeBuild(site: string, config: Config) {
   await makeDir(sm);
   await cleanSite(site);
   await Promise.all(
-    ["pages", "components", "layouts", "data", "utils"].map(p =>
+    ["pages", "components", "layouts", "data", "posts", "utils"].map(p =>
       makeDir(path.join(src, p))
     )
   );
+  await makeMadeFiles(site, config);
+}
+
+/**
+ * Make all gatsby artifacts for a site, writing them to `made/{site}/`
+ *
+ * @param site
+ * @param config
+ */
+export async function makeMadeFiles(site: string, config: Config) {
+  let sm = siteMadeDir(site);
+  let src = path.join(sm, "src");
+  // TODO: only need to copy those that are newer than 'modified'
+  // or if contents changed.
   await writeGatsbyConfig(config, path.join(sm, "gatsby-config.js"));
   await copySrcFiles(site, src);
   await writeSiteData(config, path.join(src, "data", "site.json"));
@@ -285,6 +306,10 @@ async function makeBuild(site: string, config: Config) {
 
 interface MergedSourceFiles {
   [key: string]: string;
+}
+
+interface Dirs {
+  [key: string]: boolean;
 }
 
 /**
@@ -304,10 +329,21 @@ async function copySrcFiles(site: string, dest: string) {
       sourceFiles[path.relative(parentSrc, f)] = f;
     }
   }
+  let dirs: Dirs = {};
 
   for (let relative in sourceFiles) {
     let full = sourceFiles[relative];
-    fs.copyFileSync(full, path.join(dest, relative));
+    // create directory if needed
+    let target = path.join(dest, relative);
+    let dir = path.dirname(target);
+    if (!dirs[dir]) {
+      let exists = await fs.exists(dir);
+      if (!exists) {
+        await fs.mkdir(dir);
+        dirs[dir] = true;
+      }
+    }
+    fs.copyFileSync(full, target);
   }
 }
 

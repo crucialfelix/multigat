@@ -1,7 +1,7 @@
 import { Command } from '@oclif/command';
 import chokidar from 'chokidar';
 
-import { activateSite, callGatsby, cleanSite, makeSite } from '../configs';
+import { activateSite, callGatsby, cleanSite, makeSite, updateSite } from '../configs';
 
 export default class Start extends Command {
   static description = "Start a site in development mode";
@@ -17,13 +17,16 @@ export default class Start extends Command {
     const { args } = this.parse(Start);
     let site = args.site;
     await cleanSite(site);
-    await this.make(site);
+    await makeSite(site);
+    await activateSite(site);
+    this.log(`Built and activated: ${site}`);
 
     chokidar
       .watch("./sites", { ignored: /(^|[\/\\])\../ })
       .on("change", path => {
         console.log("changed:", path);
-        this.make(site);
+        // and should not make it again until it finishes
+        updateSite(site);
       });
 
     // run gatsby develop in child process
@@ -33,11 +36,5 @@ export default class Start extends Command {
     } catch (error) {
       this.error(error);
     }
-  }
-
-  async make(site: string) {
-    await makeSite(site);
-    await activateSite(site);
-    this.log(`Built and activated: ${site}`);
   }
 }
