@@ -279,7 +279,7 @@ async function makeBuild(site: string, config: Config) {
   await makeDir(sm);
   await cleanSite(site);
   await Promise.all(
-    ["pages", "components", "layouts", "data", "posts", "utils"].map(p =>
+    ["pages", "components", "layouts", "data", "utils"].map(p =>
       makeDir(path.join(src, p))
     )
   );
@@ -399,7 +399,9 @@ function gatsbyConfig(config: Config) {
     },
     plugins: [
       "gatsby-plugin-react-helmet",
+      "gatsby-plugin-catch-links",
       `gatsby-transformer-json`,
+      "gatsby-plugin-sharp",
       {
         resolve: `gatsby-plugin-typography`,
         options: {
@@ -409,7 +411,71 @@ function gatsbyConfig(config: Config) {
       {
         resolve: `gatsby-source-filesystem`,
         options: {
-          path: `./src/data/`
+          path: `./src/data`,
+          name: "data"
+        }
+      },
+      {
+        resolve: `gatsby-source-filesystem`,
+        options: {
+          path: `./src/pages`,
+          name: "pages"
+        }
+      },
+      {
+        resolve: "gatsby-transformer-remark",
+        options: {
+          plugins: [
+            "gatsby-remark-copy-images",
+            "gatsby-remark-autolink-headers",
+            "gatsby-remark-external-links",
+
+            {
+              resolve: `gatsby-remark-images`,
+              options: {
+                // It's important to specify the maxWidth (in pixels) of
+                // the content container as this plugin uses this as the
+                // base for generating different widths of each image.
+                maxWidth: 800
+              }
+            },
+            {
+              resolve: "gatsby-remark-embed-video",
+              options: {
+                width: 800,
+                ratio: 1.77, // Optional: Defaults to 16/9 = 1.77
+                height: 400, // Optional: Overrides optional.ratio
+                related: true, //Optional: Will remove related videos from the end of an embedded YouTube video.
+                noIframeBorder: true //Optional: Disable insertion of <style> border: 0
+              }
+            },
+            {
+              resolve: `gatsby-remark-prismjs`,
+              options: {
+                // Class prefix for <pre> tags containing syntax highlighting;
+                // defaults to 'language-' (eg <pre class="language-js">).
+                // If your site loads Prism into the browser at runtime,
+                // (eg for use with libraries like react-live),
+                // you may use this to prevent Prism from re-processing syntax.
+                // This is an uncommon use-case though;
+                // If you're unsure, it's best to use the default value.
+                classPrefix: "language-",
+                // This is used to allow setting a language for inline code
+                // (i.e. single backticks) by creating a separator.
+                // This separator is a string and will do no white-space
+                // stripping.
+                // A suggested value for English speakers is the non-ascii
+                // character '›'.
+                inlineCodeMarker: null,
+                // This lets you set up language aliases.  For example,
+                // setting this to '{ sh: "bash" }' will let you use
+                // the language "sh" which will highlight using the
+                // bash highlighter.
+                aliases: {}
+              }
+            }
+            // "gatsby-remark-responsive-iframe"
+          ] // just in case those previously mentioned remark plugins sound cool :)
         }
       },
       {
