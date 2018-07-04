@@ -1,5 +1,6 @@
 import { Command } from '@oclif/command';
 import chokidar from 'chokidar';
+import _ from 'lodash';
 
 import { activateSite, callGatsby, cleanSite, makeSite, updateSite } from '../configs';
 
@@ -21,12 +22,20 @@ export default class Start extends Command {
     await activateSite(site);
     this.log(`Built and activated: ${site}`);
 
+    let update = _.debounce(
+      () => {
+        this.log("Updating...");
+        updateSite(site);
+      },
+      3000,
+      { leading: true }
+    );
+
     chokidar
       .watch("./sites", { ignored: /(^|[\/\\])\../ })
       .on("change", path => {
         console.log("changed:", path);
-        // and should not make it again until it finishes
-        updateSite(site);
+        update();
       });
 
     // run gatsby develop in child process

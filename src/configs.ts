@@ -162,8 +162,6 @@ export async function buildAll() {
  *
  * Merges all top level objects. ie. If your config only supplies {contact: {email: 'xyz'}}
  * then the parent's values for contact will all be included, only email will be set.
- *
- * @param site
  */
 async function loadExtendConfig(site: string): Promise<Config> {
   let parents = await mixinChain(site);
@@ -179,9 +177,7 @@ async function loadExtendConfig(site: string): Promise<Config> {
 }
 
 /**
- * Load a config yaml file
- *
- * @param site
+ * Load a yaml config file
  */
 async function loadConfig(site: string) {
   let configPath = await sitePath(site);
@@ -191,6 +187,10 @@ async function loadConfig(site: string) {
   return nullsToBlanks(config);
 }
 
+/**
+ * Convert any null values in Config to empty strings: ''
+ * so that Gatsby doesn't strip them out of the schema
+ */
 function nullsToBlanks(obj: Config): Config {
   return _.mapValues(obj, v => {
     if (_.isPlainObject(v)) {
@@ -205,22 +205,17 @@ function nullsToBlanks(obj: Config): Config {
 
 /**
  * Write yaml file to disk
- *
- * @param config
- * @param filename
  */
 async function writeConfig(config: Config, filename: string) {
   let content = jsYaml.safeDump(config);
-  await fs.writeFile(filename, content);
+  return writeFileIfChanged(filename, content);
 }
 
 /**
  * Find the yaml config file for a site:
  *  either sites/{site}/{site}.yaml or sites/{site}.yaml
- *
- * @param site
  */
-async function sitePath(site: string) {
+async function sitePath(site: string): Promise<string> {
   let sd = siteDir(site);
   let d = path.join(sd, `${site}.yaml`);
   let f = sd + ".yaml";
@@ -233,8 +228,6 @@ async function sitePath(site: string) {
 
 /**
  * Returns paths joined, relative to root
- *
- * @param paths
  */
 function joinPath(paths: string[]): string {
   return path.join(root(), ...paths);
@@ -250,27 +243,20 @@ function root() {
 /**
  * Directory where a site's yaml config and custom source
  * files are stored.
- *
- * @param site
  */
-export function siteDir(site: string) {
+export function siteDir(site: string): string {
   return joinPath(["sites", site]);
 }
 
 /**
  * Path of the made directory for a site: `made/{site}/`
- *
- * @param site
  */
-function siteMadeDir(site: string) {
+function siteMadeDir(site: string): string {
   return joinPath(["made", site]);
 }
 
 /**
  * Initialize directories and make all gatsby artifacts for a site, writing them to `made/{site}/`
- *
- * @param site
- * @param config
  */
 async function makeBuild(site: string, config: Config) {
   let sm = siteMadeDir(site);
@@ -288,20 +274,36 @@ async function makeBuild(site: string, config: Config) {
 
 /**
  * Make all gatsby artifacts for a site, writing them to `made/{site}/`
- *
- * @param site
- * @param config
  */
 export async function makeMadeFiles(site: string, config: Config) {
   let sm = siteMadeDir(site);
   let src = path.join(sm, "src");
-  // TODO: only need to copy those that are newer than 'modified'
-  // or if contents changed.
+
   await writeGatsbyConfig(config, path.join(sm, "gatsby-config.js"));
   await copySrcFiles(site, src);
   await writeSiteData(config, path.join(src, "data", "site.json"));
   await writeConfig(config, path.join(sm, "config.yaml"));
   await customizeComponents(config, src);
+}
+
+/**
+ * Writes to file only if contents are different
+ */
+async function writeFileIfChanged(
+  filename: string,
+  contents: string
+): Promise<void> {
+  let current = await readFile(filename);
+  if (current !== contents) {
+    return fs.writeFile(filename, contents);
+  }
+}
+
+/**
+ * Return file contents or '' if does not exist.
+ */
+function readFile(filename: string): Promise<string> {
+  return fs.readFile(filename, { encoding: "utf8" }).catch(error => "");
 }
 
 interface MergedSourceFiles {
@@ -337,14 +339,26 @@ async function copySrcFiles(site: string, dest: string) {
     let target = path.join(dest, relative);
     let dir = path.dirname(target);
     if (!dirs[dir]) {
-      let exists = await fs.exists(dir);
-      if (!exists) {
+      if (!(await fs.exists(dir))) {
         await fs.mkdir(dir);
         dirs[dir] = true;
       }
     }
-    fs.copyFileSync(full, target);
+
+    await copyNewer(full, target);
   }
+}
+
+async function copyNewer(source: string, target: string): Promise<void> {
+  let sourceTime = await mtime(source);
+  let targetTime = await mtime(target);
+  if (sourceTime > targetTime) {
+    fs.copyFileSync(source, target);
+  }
+}
+
+async function mtime(source: string): Promise<number> {
+  return fs.stat(source).then(stats => stats.mtimeMs, error => 0);
 }
 
 /**
@@ -370,7 +384,7 @@ async function customizeComponents(config: Config, src: string) {
         `import ${key} from "../components/${target}";`
       );
     }
-    await fs.writeFile(layoutPath, content);
+    await writeFileIfChanged(layoutPath, content);
   }
 }
 
@@ -383,7 +397,7 @@ async function writeGatsbyConfig(config: Config, filename: string) {
     `[require("path").resolve(__dirname, "node_modules")]`
   );
   let body = `module.exports = ${json};\n`;
-  return fs.writeFile(filename, body);
+  return writeFileIfChanged(filename, body);
 }
 
 /**
@@ -506,7 +520,7 @@ function gatsbyConfig(config: Config) {
  */
 async function writeSiteData(config: Config, filename: string) {
   let json = JSON.stringify(config, undefined, 2);
-  return fs.writeFile(filename, json);
+  return writeFileIfChanged(filename, json);
 }
 
 /**
@@ -531,6 +545,9 @@ async function mixinChain(site: string): Promise<string[]> {
  * @param echo    - Echo stdout/stderr
  */
 export async function callGatsby(command: string[], echo = true) {
+  // options: colors work, but throws unhandled exception
+  // TypeError: Cannot read property 'pipe' of null
+  // { stdio: echo ? "inherit" : "pipe" }
   let job = execa(GATSBY_BIN, command);
   if (echo) {
     job.stdout.pipe(process.stdout);
