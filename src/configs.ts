@@ -3,10 +3,9 @@
  */
 import del from 'del';
 import execa from 'execa';
+import fs from 'fs-extra';
 import jsYaml from 'js-yaml';
 import _ from 'lodash';
-import makeDir from 'make-dir';
-import fs from 'mz/fs';
 import path from 'path';
 import readdir from 'recursive-readdir';
 
@@ -35,9 +34,9 @@ export async function createSite(
   config: Config
 ): Promise<string> {
   let sd = siteDir(site);
-  await makeDir(sd);
+  await fs.ensureDir(sd);
   let filename = path.join(sd, `${site}.yaml`);
-  let exists = await fs.exists(filename);
+  let exists = await fs.pathExists(filename);
   if (!exists) {
     let body = jsYaml.safeDump(config);
     await fs.writeFile(filename, body);
@@ -94,7 +93,7 @@ async function emptyDir(dir: string) {
 export async function activateSite(site: string) {
   let sm = siteMadeDir(site);
 
-  if (!(await fs.exists(sm))) {
+  if (!(await fs.pathExists(sm))) {
     throw Error(`Site is not yet made: ${site} dir: ${sm}`);
   }
   let r = root();
@@ -102,16 +101,8 @@ export async function activateSite(site: string) {
   // maybe just copy them
   async function link(filename: string, type: string) {
     let target = path.join(sm, filename);
-    let p = path.join(r, filename);
-
-    // TODO: check if exists and does not point to target
-    // only then unlink
-    try {
-      await fs.unlink(p);
-    } catch (e) {
-      console.warn(e);
-    }
-    await fs.symlink(target, p, type);
+    let source = path.join(r, filename);
+    await fs.ensureSymlink(source, target);
   }
 
   await link("gatsby-config.js", "file");
@@ -220,8 +211,8 @@ async function sitePath(site: string): Promise<string> {
   let d = path.join(sd, `${site}.yaml`);
   let f = sd + ".yaml";
 
-  if (await fs.exists(d)) return d;
-  if (await fs.exists(f)) return f;
+  if (await fs.pathExists(d)) return d;
+  if (await fs.pathExists(f)) return f;
 
   throw Error(`Site config not found: ${site}`);
 }
@@ -262,13 +253,8 @@ async function makeBuild(site: string, config: Config) {
   let sm = siteMadeDir(site);
   let src = path.join(sm, "src");
 
-  await makeDir(sm);
+  await fs.ensureDir(sm);
   await cleanSite(site);
-  await Promise.all(
-    ["pages", "components", "layouts", "data", "utils"].map(p =>
-      makeDir(path.join(src, p))
-    )
-  );
   await makeMadeFiles(site, config);
 }
 
@@ -295,6 +281,7 @@ async function writeFileIfChanged(
 ): Promise<void> {
   let current = await readFile(filename);
   if (current !== contents) {
+    await fs.ensureDir(path.dirname(filename));
     return fs.writeFile(filename, contents);
   }
 }
@@ -339,10 +326,8 @@ async function copySrcFiles(site: string, dest: string) {
     let target = path.join(dest, relative);
     let dir = path.dirname(target);
     if (!dirs[dir]) {
-      if (!(await fs.exists(dir))) {
-        await fs.mkdir(dir);
-        dirs[dir] = true;
-      }
+      await fs.ensureDir(dir);
+      dirs[dir] = true;
     }
 
     await copyNewer(full, target);
