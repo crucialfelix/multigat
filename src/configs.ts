@@ -3,7 +3,8 @@
  */
 import del from 'del';
 import execa from 'execa';
-import fs from 'fs-extra';
+import { promises as fsp, realpath } from 'fs';
+import fsx from 'fs-extra';
 import jsYaml from 'js-yaml';
 import _ from 'lodash';
 import path from 'path';
@@ -34,12 +35,12 @@ export async function createSite(
   config: Config
 ): Promise<string> {
   let sd = siteDir(site);
-  await fs.ensureDir(sd);
+  await fsx.ensureDir(sd);
   let filename = path.join(sd, `${site}.yaml`);
-  let exists = await fs.pathExists(filename);
+  let exists = await fsx.pathExists(filename);
   if (!exists) {
     let body = jsYaml.safeDump(config);
-    await fs.writeFile(filename, body);
+    await fsx.writeFile(filename, body);
   }
   return filename;
 }
@@ -93,27 +94,57 @@ async function emptyDir(dir: string) {
 export async function activateSite(site: string) {
   let sm = siteMadeDir(site);
 
-  if (!(await fs.pathExists(sm))) {
+  if (!(await fsx.pathExists(sm))) {
     throw Error(`Site is not yet made: ${site} dir: ${sm}`);
   }
   let r = root();
 
   // maybe just copy them
-  async function link(filename: string, type: string) {
-    let target = path.join(sm, filename);
-    let source = path.join(r, filename);
-    await fs.ensureSymlink(source, target);
+  async function link(filename: string) {
+    let source = path.join(sm, filename);
+    let target = path.join(r, filename);
+    let linked = await linksTo(source, target);
+
+    if (!linked) {
+      await maybeUnlink(target);
+      await fsp.symlink(source, target);
+    }
   }
 
-  await link("gatsby-config.js", "file");
-  await link("src", "dir");
+  await link("gatsby-config.js");
+  await link("src");
+}
+
+/**
+ * Is target symlinked to source ?
+ *
+ * @param source
+ * @param target
+ */
+async function linksTo(source: string, target: string): Promise<boolean> {
+  return new Promise<boolean>((resolve, reject) => {
+    realpath(target, (error: Error, resolvedPath: string) => {
+      if (error) {
+        // console.log("realpath?", target, error);
+        resolve(false);
+      } else {
+        resolve(source === resolvedPath);
+      }
+    });
+  });
+}
+
+async function maybeUnlink(target: string) {
+  if (await fsx.pathExists(target)) {
+    return fsp.unlink(target);
+  }
 }
 
 /**
  * Names of all sites in `./sites`
  */
 export async function listSites(): Promise<string[]> {
-  let sites = await fs.readdir(path.join(root(), "sites"));
+  let sites = await fsx.readdir(path.join(root(), "sites"));
   return sites.filter((s: string) => !s.startsWith("."));
 }
 
@@ -172,7 +203,7 @@ async function loadExtendConfig(site: string): Promise<Config> {
  */
 async function loadConfig(site: string) {
   let configPath = await sitePath(site);
-  let content = await fs.readFile(configPath, "utf8");
+  let content = await fsx.readFile(configPath, "utf8");
   let config = jsYaml.safeLoad(content) as Config;
 
   return nullsToBlanks(config);
@@ -211,8 +242,8 @@ async function sitePath(site: string): Promise<string> {
   let d = path.join(sd, `${site}.yaml`);
   let f = sd + ".yaml";
 
-  if (await fs.pathExists(d)) return d;
-  if (await fs.pathExists(f)) return f;
+  if (await fsx.pathExists(d)) return d;
+  if (await fsx.pathExists(f)) return f;
 
   throw Error(`Site config not found: ${site}`);
 }
@@ -253,7 +284,7 @@ async function makeBuild(site: string, config: Config) {
   let sm = siteMadeDir(site);
   let src = path.join(sm, "src");
 
-  await fs.ensureDir(sm);
+  await fsx.ensureDir(sm);
   await cleanSite(site);
   await makeMadeFiles(site, config);
 }
@@ -281,8 +312,8 @@ async function writeFileIfChanged(
 ): Promise<void> {
   let current = await readFile(filename);
   if (current !== contents) {
-    await fs.ensureDir(path.dirname(filename));
-    return fs.writeFile(filename, contents);
+    await fsx.ensureDir(path.dirname(filename));
+    return fsx.writeFile(filename, contents);
   }
 }
 
@@ -290,7 +321,7 @@ async function writeFileIfChanged(
  * Return file contents or '' if does not exist.
  */
 function readFile(filename: string): Promise<string> {
-  return fs.readFile(filename, { encoding: "utf8" }).catch(error => "");
+  return fsx.readFile(filename, { encoding: "utf8" }).catch(error => "");
 }
 
 interface MergedSourceFiles {
@@ -326,7 +357,7 @@ async function copySrcFiles(site: string, dest: string) {
     let target = path.join(dest, relative);
     let dir = path.dirname(target);
     if (!dirs[dir]) {
-      await fs.ensureDir(dir);
+      await fsx.ensureDir(dir);
       dirs[dir] = true;
     }
 
@@ -338,12 +369,12 @@ async function copyNewer(source: string, target: string): Promise<void> {
   let sourceTime = await mtime(source);
   let targetTime = await mtime(target);
   if (sourceTime > targetTime) {
-    fs.copyFileSync(source, target);
+    fsx.copyFileSync(source, target);
   }
 }
 
 async function mtime(source: string): Promise<number> {
-  return fs.stat(source).then(stats => stats.mtimeMs, error => 0);
+  return fsx.stat(source).then(stats => stats.mtimeMs, error => 0);
 }
 
 /**
@@ -360,7 +391,7 @@ async function mtime(source: string): Promise<number> {
 async function customizeComponents(config: Config, src: string) {
   if (config._LAYOUT) {
     let layoutPath = path.join(src, "layouts", "index.js");
-    let content = await fs.readFile(layoutPath, "utf8");
+    let content = await fsx.readFile(layoutPath, "utf8");
     for (let key in config._LAYOUT) {
       let target = config._LAYOUT[key];
       let re = new RegExp(`^import ${key} from ['"](.+)['"]`, "m");
@@ -400,6 +431,7 @@ function gatsbyConfig(config: Config) {
       "gatsby-plugin-react-helmet",
       "gatsby-plugin-catch-links",
       `gatsby-transformer-json`,
+      // `gatsby-transformer-yaml`,
       "gatsby-plugin-sharp",
       {
         resolve: `gatsby-plugin-typography`,
@@ -410,10 +442,24 @@ function gatsbyConfig(config: Config) {
       {
         resolve: `gatsby-source-filesystem`,
         options: {
-          path: `./src/data`,
-          name: "data"
+          path: `./src/data/site.json`,
+          name: "site"
         }
       },
+      // {
+      //   resolve: `gatsby-source-filesystem`,
+      //   options: {
+      //     path: `./src/data/music.json`,
+      //     name: "music"
+      //   }
+      // },
+      // {
+      //   resolve: `gatsby-source-filesystem`,
+      //   options: {
+      //     path: `./src/music`,
+      //     name: "music"
+      //   }
+      // },
       {
         resolve: `gatsby-source-filesystem`,
         options: {
@@ -444,7 +490,7 @@ function gatsbyConfig(config: Config) {
                 width: 800,
                 ratio: 1.77, // Optional: Defaults to 16/9 = 1.77
                 height: 400, // Optional: Overrides optional.ratio
-                related: true, //Optional: Will remove related videos from the end of an embedded YouTube video.
+                related: false, //Optional: Will remove related videos from the end of an embedded YouTube video.
                 noIframeBorder: true //Optional: Disable insertion of <style> border: 0
               }
             },
