@@ -1,6 +1,6 @@
 import { Command } from '@oclif/command';
 
-import { activateSite, makeSite } from '../configs';
+import { activateSite } from '../configs';
 
 export default class Activate extends Command {
   static description =
@@ -16,7 +16,6 @@ export default class Activate extends Command {
   async run() {
     const { args } = this.parse(Activate);
     let site = args.site;
-    await makeSite(site);
     await activateSite(site);
     this.log(`Activated: ${site}`);
   }

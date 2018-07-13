@@ -1,14 +1,14 @@
 /**
  * These functions make gatsby file assets from the folders in sites.
  */
-import del from 'del';
-import execa from 'execa';
-import { promises as fsp, realpath } from 'fs';
-import fsx from 'fs-extra';
-import jsYaml from 'js-yaml';
-import _ from 'lodash';
-import path from 'path';
-import readdir from 'recursive-readdir';
+import del from "del";
+import execa from "execa";
+import { promises as fsp } from "fs";
+import fsx, { mkdirp } from "fs-extra";
+import jsYaml from "js-yaml";
+import _ from "lodash";
+import path from "path";
+import readdir from "recursive-readdir";
 
 interface Config {
   extends?: string[];
@@ -36,7 +36,7 @@ export async function createSite(
 ): Promise<string> {
   let sd = siteDir(site);
   await fsx.ensureDir(sd);
-  let filename = path.join(sd, `${site}.yaml`);
+  let filename = path.join(sd, `config.yaml`);
   let exists = await fsx.pathExists(filename);
   if (!exists) {
     let body = jsYaml.safeDump(config);
@@ -86,22 +86,34 @@ async function emptyDir(dir: string) {
 }
 
 /**
- * Having 'made' a site, activate it for gatsby develop / build
- * by linking gatsby-config and src folders into the project root.
+ * Activate a site for gatsby develop / build by
+ * linking the gatsby-config and src folders into the project root.
+ *
+ * If required folders or config files are missing from sites/{site} then it copies
+ * them from default-site
  *
  * @param site
  */
 export async function activateSite(site: string) {
-  let sm = siteMadeDir(site);
-
-  if (!(await fsx.pathExists(sm))) {
-    throw Error(`Site is not yet made: ${site} dir: ${sm}`);
-  }
   let r = root();
 
-  // maybe just copy them
-  async function link(filename: string) {
+  let sm = path.join(r, "sites", site);
+  let defaultSite = path.join(r, "default-site");
+
+  if (!(await fsx.pathExists(sm))) {
+    throw Error(`Site not found: ${site} dir: ${sm}`);
+  }
+
+  let config = await loadExtendConfig(site);
+  await writeSiteData(config, path.join(sm, "src", "data", "config.json"));
+
+  async function linkFromSite(filename: string) {
+    // if it exists in source
+    // else copy from default-site
     let source = path.join(sm, filename);
+    if (!(await fsx.pathExists(source))) {
+      source = path.join(defaultSite, filename);
+    }
     let target = path.join(r, filename);
     let linked = await linksTo(source, target);
 
@@ -111,8 +123,29 @@ export async function activateSite(site: string) {
     }
   }
 
-  await link("gatsby-config.js");
-  await link("src");
+  await linkFromSite("gatsby-config.js");
+  await linkFromSite("gatsby-node.js");
+  await linkFromSite("config.yaml");
+  await linkFromSite("src");
+  await linkFromSite("plugins");
+
+  let dist = path.join(r, "dist", site);
+
+  async function linkToDist(filename: string) {
+    let source = path.join(dist, filename);
+    let target = path.join(r, filename);
+    let linked = await linksTo(source, target);
+
+    if (!linked) {
+      // create it if it doesn't exist
+      await mkdirp(source);
+      await maybeUnlink(target);
+      await fsp.symlink(source, target);
+    }
+  }
+
+  // await linkToDist(".cache");
+  await linkToDist("public");
 }
 
 /**
@@ -122,21 +155,21 @@ export async function activateSite(site: string) {
  * @param target
  */
 async function linksTo(source: string, target: string): Promise<boolean> {
-  return new Promise<boolean>((resolve, reject) => {
-    realpath(target, (error: Error, resolvedPath: string) => {
-      if (error) {
-        // console.log("realpath?", target, error);
-        resolve(false);
-      } else {
-        resolve(source === resolvedPath);
-      }
-    });
-  });
+  if (!(await fsx.pathExists(target))) {
+    return false;
+  }
+  let linkedTo = await fsp.readlink(target);
+  return source === linkedTo;
 }
 
 async function maybeUnlink(target: string) {
-  if (await fsx.pathExists(target)) {
-    return fsp.unlink(target);
+  if (!(await fsx.pathExists(target))) {
+    return;
+  }
+  let linkedTo = await fsp.readlink(target);
+  if (linkedTo) {
+    await fsp.unlink(target);
+    return;
   }
 }
 
@@ -162,7 +195,6 @@ export async function listSites(): Promise<string[]> {
  * @param echo Echo stdout/stderr
  */
 export async function buildSite(site: string, echo = true) {
-  await makeSite(site);
   await activateSite(site);
   await emptyDir(joinPath(["public"]));
   return callGatsby(["build"], echo);
@@ -239,13 +271,11 @@ async function writeConfig(config: Config, filename: string) {
  */
 async function sitePath(site: string): Promise<string> {
   let sd = siteDir(site);
-  let d = path.join(sd, `${site}.yaml`);
-  let f = sd + ".yaml";
+  let d = path.join(sd, `config.yaml`);
 
   if (await fsx.pathExists(d)) return d;
-  if (await fsx.pathExists(f)) return f;
 
-  throw Error(`Site config not found: ${site}`);
+  throw Error(`Site config not found: ${site} at ${d}`);
 }
 
 /**
@@ -526,7 +556,8 @@ function gatsbyConfig(config: Config) {
       {
         resolve: `gatsby-plugin-sass`,
         options: {
-          // placeholder
+          // placeholder: replace when writing the gatsby-config.js file
+          // with something that resolves this as runtime
           includePaths: "__NODE_MODULES__"
         }
       },
