@@ -57,6 +57,7 @@ export async function makeSite(site: string) {
   return config;
 }
 
+// deprec
 export async function updateSite(site: string) {
   let config = await loadExtendConfig(site);
   await makeMadeFiles(site, config);
@@ -65,6 +66,7 @@ export async function updateSite(site: string) {
 
 /**
  * Make all sites
+ * deprec
  */
 export async function makeAll() {
   let sites = await listSites();
@@ -73,7 +75,7 @@ export async function makeAll() {
 
 /**
  * Delete all files in `made/${site}`
- *
+ * deprec
  * @param site
  */
 export async function cleanSite(site: string) {
@@ -309,6 +311,8 @@ function siteMadeDir(site: string): string {
 
 /**
  * Initialize directories and make all gatsby artifacts for a site, writing them to `made/{site}/`
+ *
+ * deprec
  */
 async function makeBuild(site: string, config: Config) {
   let sm = siteMadeDir(site);
@@ -321,6 +325,8 @@ async function makeBuild(site: string, config: Config) {
 
 /**
  * Make all gatsby artifacts for a site, writing them to `made/{site}/`
+ *
+ * deprec
  */
 export async function makeMadeFiles(site: string, config: Config) {
   let sm = siteMadeDir(site);
@@ -365,6 +371,8 @@ interface Dirs {
 /**
  * Copy source files for the site and for any parent that this
  * site .extends from
+ *
+ * deprec
  *
  * @param site
  * @param dest
@@ -417,6 +425,7 @@ async function mtime(source: string): Promise<number> {
  *   Content: CustomContent.js
  *   Menu: MyMenu.js
  *
+ * deprec
  */
 async function customizeComponents(config: Config, src: string) {
   if (config._LAYOUT) {
@@ -448,6 +457,8 @@ async function writeGatsbyConfig(config: Config, filename: string) {
 
 /**
  * Generate gatsby-config from yaml config
+ *
+ * collect from config plugins
  *
  * @param config
  */
